@@ -1,0 +1,153 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")  -- To detect input for free camera movement
+local Camera = game:GetService("Workspace").CurrentCamera  -- Access the camera
+
+-- Constants
+local TELEPORT_RANGE = Vector3.new(0, 20, 0)  -- Adjust these values based on your game world size
+local FREE_CAMERA_SPEED = 50  -- Adjust for how fast the free camera moves in spectator mode
+
+-- Variables
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()  -- Handle the character when the script starts
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local originalPosition = humanoidRootPart.Position  -- Store the original position of the player
+local isTeleporting = false
+local isSpectatorMode = false  -- Tracks if the camera is in spectator mode
+local button = script.Parent -- Assuming the button is the parent of the script
+local spectatorCameraPosition = Camera.CFrame  -- Store the camera position for spectator mode
+
+-- Function to get a random position within the specified range
+local function getRandomPosition(basePosition)
+	local randomOffset = Vector3.new(
+		math.random(-TELEPORT_RANGE.X, TELEPORT_RANGE.X),
+		math.random(-TELEPORT_RANGE.Y, TELEPORT_RANGE.Y),
+		math.random(-TELEPORT_RANGE.Z, TELEPORT_RANGE.Z)
+	)
+	return basePosition + randomOffset
+end
+
+-- Function to teleport the player to a random position
+local function teleportPlayer()
+	if character and humanoidRootPart then
+		local targetPosition = getRandomPosition(humanoidRootPart.Position)
+
+		-- Teleport the player to the new position
+		local success, error = pcall(function()
+			humanoidRootPart.CFrame = CFrame.new(targetPosition)  -- Teleport the player (moves the HumanoidRootPart)
+		end)
+
+		-- Log any errors
+		if not success then
+			warn("Teleportation failed:", error)
+		end
+	end
+end
+
+-- Function to teleport the player back to their original position
+local function teleportBackToOriginalPosition()
+	if character and humanoidRootPart then
+		local success, error = pcall(function()
+			humanoidRootPart.CFrame = CFrame.new(originalPosition)  -- Teleport back to the original position
+		end)
+
+		-- Log any errors
+		if not success then
+			warn("Teleportation back failed:", error)
+		end
+	end
+end
+
+-- Function to enable spectator mode
+local function enableSpectatorMode()
+	spectatorCameraPosition = Camera.CFrame  -- Lock the camera's current position
+	isSpectatorMode = true
+	Camera.CameraType = Enum.CameraType.Scriptable  -- Set camera to free mode (Scriptable)
+end
+
+-- Function to disable spectator mode and return the camera to the player
+local function disableSpectatorMode()
+	isSpectatorMode = false
+	Camera.CameraType = Enum.CameraType.Custom  -- Return camera to follow the player
+	Camera.CameraSubject = player.Character:FindFirstChild("Humanoid")  -- Attach camera back to player
+end
+
+-- Function to move the camera in spectator mode
+local function moveSpectatorCamera(deltaTime)
+	local moveDirection = Vector3.new()
+
+	-- Handle movement keys (W, A, S, D for forward/backward and left/right, space for up, shift for down)
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+		moveDirection = moveDirection + (Camera.CFrame.LookVector)  -- Move forward
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+		moveDirection = moveDirection - (Camera.CFrame.LookVector)  -- Move backward
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+		moveDirection = moveDirection - (Camera.CFrame.RightVector)  -- Move left
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+		moveDirection = moveDirection + (Camera.CFrame.RightVector)  -- Move right
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+		moveDirection = moveDirection + Vector3.new(0, 1, 0)  -- Move up
+	end
+	if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+		moveDirection = moveDirection - Vector3.new(0, 1, 0)  -- Move down
+	end
+
+	-- Update the camera's position based on the move direction and speed
+	if moveDirection.Magnitude > 0 then
+		spectatorCameraPosition = spectatorCameraPosition + moveDirection.Unit * FREE_CAMERA_SPEED * deltaTime
+		Camera.CFrame = CFrame.new(spectatorCameraPosition.Position, spectatorCameraPosition.Position + Camera.CFrame.LookVector)
+	end
+end
+
+-- Function to toggle teleportation
+local function toggleTeleportation()
+	isTeleporting = not isTeleporting
+
+	-- Change button color when teleportation is toggled on/off
+	if isTeleporting then
+		button.BackgroundColor3 = Color3.new(0.905882, 0.196078, 0.0196078) -- Red color when active
+		-- Store the original position when teleportation starts
+		originalPosition = humanoidRootPart.Position
+
+		-- Enable spectator mode (detach camera from player)
+		enableSpectatorMode()
+
+		-- Continuously teleport the player to a random position every 0.1 seconds
+		while isTeleporting do
+			teleportPlayer()  -- Teleport the player to a random position
+			wait(0.1)  -- Wait before teleporting again
+		end
+	else
+		button.BackgroundColor3 = Color3.new(0.0117647, 0.0117647, 0.0117647) -- Default button color when inactive
+		-- Teleport back to the original position when teleportation is stopped
+		teleportBackToOriginalPosition()
+
+		-- Disable spectator mode (re-attach the camera to the player)
+		disableSpectatorMode()
+	end
+end
+
+-- Handle free camera movement in spectator mode
+RunService.RenderStepped:Connect(function(deltaTime)
+	if isSpectatorMode then
+		moveSpectatorCamera(deltaTime)
+	end
+end)
+
+-- Function to update character reference on respawn
+local function onCharacterAdded(newCharacter)
+	character = newCharacter
+	humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+	originalPosition = humanoidRootPart.Position  -- Update the original position when the character respawns
+end
+
+-- Connect button click to toggle teleportation
+button.MouseButton1Click:Connect(toggleTeleportation)
+
+-- Handle character respawn
+player.CharacterAdded:Connect(onCharacterAdded)
